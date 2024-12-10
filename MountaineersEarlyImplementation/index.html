@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editing Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #333;
+      color: #fff;
+    }
+    .container {
+      display: flex;
+      justify-content: flex-start;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .box {
+      position: relative;
+      width: 8.5in;
+      height: 9in;
+      background-color: #444;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      border: 1px solid #666;
+      overflow: hidden;
+    }
+    .text-box {
+      position: absolute;
+      padding: 5px 10px;
+      cursor: move;
+      background-color: #555;
+      color: #fff;
+      border: 1px solid transparent;
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .text-box.selected {
+      background-color: #333;
+      border-color: #007bff;
+    }
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .buttons button {
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background-color: #4fa3fd;
+      color: #fff;
+      transition: background-color 0.3s;
+    }
+    .buttons button:hover {
+      background-color: #007bff;
+    }
+    input[type="text"] {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: inherit;
+      width: auto;
+    }
+    .popout-box {
+      position: absolute;
+      top: 0;
+      right: 10px;
+      background-color: #444;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      z-index: 10;
+      display: none;
+      flex-direction: column;
+    }
+    .popout-box.visible {
+      display: flex;
+    }
+    .popout-box label {
+      font-size: 14px;
+      margin: 5px 0 2px;
+    }
+    select,
+    input[type="color"],
+    button {
+      margin: 5px 0;
+      background-color: #555;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 5px;
+    }
+    input[type="color"] {
+      width: 30px; 
+      height: 30px; 
+      padding: 0;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <!-- Canvas to add text box -->
+      <div class="box" ref="paper">
+        <div 
+          v-for="(textBox, index) in textBoxes" 
+          :key="index" 
+          class="text-box"
+          :class="{ selected: selectedIndex === index }"
+          :style="{ 
+            top: textBox.top + 'px', 
+            left: textBox.left + 'px', 
+            fontSize: textBox.fontSize + 'px', 
+            fontWeight: textBox.isBold ? 'bold' : 'normal', 
+            fontFamily: textBox.fontFamily, 
+            borderColor: textBox.outlineColor, 
+            backgroundColor: textBox.backgroundColor, 
+            color: textBox.textColor 
+          }"
+          @mousedown="startDragging($event, index)"
+          @click="selectTextBox(index)"
+        >
+          <template v-if="selectedIndex === index">
+            <input 
+              type="text" 
+              v-model="textBox.content"
+              @keydown.enter.prevent="finishEditing(index)"
+              autofocus
+            >
+          </template>
+          <template v-else>
+            {{ textBox.content }}
+          </template>
+        </div>
+      </div>
+
+      <!-- Buttons on the side of the canvas for the select, delete, and add text -->
+      <div class="buttons">
+        <button @click="addTextBox">Add Text</button>
+        <button @click="toggleSelectMode">{{ selectMode ? 'Exit Select Mode' : 'Select Mode' }}</button>
+        <button v-if="selectedIndex !== null" @click="deleteTextBox">Delete Text</button>
+      </div>
+      
+      <!-- Submenu to edit the text -->
+      <div v-if="selectedIndex !== null" class="popout-box visible">
+        <label>Font Size</label>
+        <select v-model="selectedFontSize" @change="changeFontSize">
+          <option v-for="size in fontSizeOptions" :key="size" :value="size">{{ size }} px</option>
+        </select>
+        <button @click="toggleBold">{{ textBoxes[selectedIndex].isBold ? 'Unbold' : 'Bold' }}</button>
+        <label>Font Family</label>
+        <select v-model="selectedFontFamily" @change="changeFontFamily">
+          <option v-for="font in fontFamilyOptions" :key="font" :value="font">{{ font }}</option>
+        </select>
+        <label>Text Color</label>
+        <input type="color" v-model="selectedTextColor" @change="changeTextColor">
+        <label>Box Outline Color</label>
+        <input type="color" v-model="selectedOutlineColor" @change="changeOutlineColor">
+        <label>Background Color</label>
+        <input type="color" v-model="selectedBackgroundColor" @change="changeBackgroundColor">
+        <button @click="finishEditing(selectedIndex)">Confirm</button>
+      </div>
+    </div>
+  </div>
+  <!-- Vue.js within HTMX that sets up the webpage, calling each div class as well as calling methods below -->
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          textBoxes: [],
+          selectedIndex: null,
+          dragIndex: null,
+          dragOffset: { x: 0, y: 0 },
+          selectMode: false,
+          fontSizeOptions: [12, 14, 16, 18, 20, 22, 24, 26, 28],
+          fontFamilyOptions: ['Arial', 'Courier New', 'Georgia', 'Times New Roman'],
+          selectedFontSize: 16,
+          selectedFontFamily: 'Arial',
+          selectedTextColor: '#ffffff',
+          selectedOutlineColor: '#000000',
+          selectedBackgroundColor: 'rgba(0, 0, 0, 0.1)',
+        };
+      },
+      // methods for the editing tool
+      methods: {
+        addTextBox() {
+          const newTextBox = {
+            top: 50,
+            left: 50,
+            content: 'New Text',
+            fontSize: 16,
+            isBold: false,
+            fontFamily: 'Arial',
+            outlineColor: '#000000',
+            backgroundColor: 'rgba(0, 0, 0, 0.1)',
+            textColor: '#ffffff',
+          };
+          this.textBoxes.push(newTextBox);
+          this.selectedIndex = this.textBoxes.length - 1;
+        },
+        finishEditing(index) {
+          this.selectedIndex = null;
+        },
+        deleteTextBox() {
+          this.textBoxes.splice(this.selectedIndex, 1);
+          this.selectedIndex = null;
+        },
+        toggleSelectMode() {
+          this.selectMode = !this.selectMode;
+        },
+        selectTextBox(index) {
+          if (this.selectMode) {
+            this.selectedIndex = index;
+          }
+        },
+        startDragging(event, index) {
+          if (!this.selectMode) return; 
+
+          this.dragIndex = index;
+          this.dragOffset.x = event.offsetX;
+          this.dragOffset.y = event.offsetY;
+
+          const onMouseMove = (moveEvent) => {
+            const box = this.$refs.paper.getBoundingClientRect();
+            this.textBoxes[this.dragIndex].top = moveEvent.clientY - box.top - this.dragOffset.y;
+            this.textBoxes[this.dragIndex].left = moveEvent.clientX - box.left - this.dragOffset.x;
+          };
+
+          const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+          };
+
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+        },
+        changeFontSize() {
+          this.textBoxes[this.selectedIndex].fontSize = parseInt(this.selectedFontSize, 10);
+        },
+        toggleBold() {
+          this.textBoxes[this.selectedIndex].isBold = !this.textBoxes[this.selectedIndex].isBold;
+        },
+        changeFontFamily() {
+          this.textBoxes[this.selectedIndex].fontFamily = this.selectedFontFamily;
+        },
+        changeTextColor() {
+          this.textBoxes[this.selectedIndex].textColor = this.selectedTextColor;
+        },
+        changeOutlineColor() {
+          this.textBoxes[this.selectedIndex].outlineColor = this.selectedOutlineColor;
+        },
+        changeBackgroundColor() {
+          this.textBoxes[this.selectedIndex].backgroundColor = this.selectedBackgroundColor;
+        },
+      },
+    }).mount('#app');
+  </script>
+</body>
+</html>

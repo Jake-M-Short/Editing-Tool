@@ -17,3 +17,5 @@ This is the instructions for the editing tool early implmentation.
 
 6. Once you have finished moving the text to your desired location, you can toggle the select button to exit select mode.
 
+7. If you are still within the edit submenu when finished moving the text, either click enter in the text field or confirm in the submenu.
+
